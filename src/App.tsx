@@ -790,24 +790,24 @@ function App() {
                       }
                     }}
                   >
-                    <AnimatePresence initial={false}>
-                      <motion.div
-                        key={`${currentRoom.beds}-${roomCategory}-${roomPhotoIndex}`}
-                        className="room-slider-slide"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.38, ease: [0.25, 0.1, 0.25, 1.0] }}
-                      >
-                        <SmartImage
-                          asset={currentPhoto}
-                          className="room-slider-img"
-                          loading="eager"
-                          decoding="async"
-                        />
-                        <div className="room-slider-shade" />
-                      </motion.div>
-                    </AnimatePresence>
+                    {activePhotos.map((photo, idx) => {
+                      const isActive = idx === roomPhotoIndex
+                      return (
+                        <div
+                          key={photo.local}
+                          className={`room-slider-slide ${isActive ? 'room-slider-slide--active' : ''}`}
+                          aria-hidden={!isActive}
+                        >
+                          <SmartImage
+                            asset={photo}
+                            className="room-slider-img"
+                            loading="eager"
+                            decoding="async"
+                          />
+                          <div className="room-slider-shade" />
+                        </div>
+                      )
+                    })}
 
                     {/* Top badging & zoom action */}
                     <div
@@ -836,13 +836,12 @@ function App() {
                         <button
                           type="button"
                           className="slider-nav-arrow slider-nav-arrow--prev"
-                          onClick={handlePrevPhoto}
-                          onTouchStart={(e) => e.stopPropagation()}
-                          onTouchEnd={(e) => {
+                          onClick={(e) => {
                             e.stopPropagation()
-                            if (e.cancelable) e.preventDefault()
-                            handlePrevPhoto()
+                            handlePrevPhoto(e)
                           }}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onTouchEnd={(e) => e.stopPropagation()}
                           aria-label="Foto anterior"
                         >
                           <ChevronLeft size={22} />
@@ -850,13 +849,12 @@ function App() {
                         <button
                           type="button"
                           className="slider-nav-arrow slider-nav-arrow--next"
-                          onClick={handleNextPhoto}
-                          onTouchStart={(e) => e.stopPropagation()}
-                          onTouchEnd={(e) => {
+                          onClick={(e) => {
                             e.stopPropagation()
-                            if (e.cancelable) e.preventDefault()
-                            handleNextPhoto()
+                            handleNextPhoto(e)
                           }}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onTouchEnd={(e) => e.stopPropagation()}
                           aria-label="Foto siguiente"
                         >
                           <ChevronRight size={22} />
@@ -878,11 +876,8 @@ function App() {
                                 e.stopPropagation()
                                 setRoomPhotoIndex(dotIdx)
                               }}
-                              onTouchEnd={(e) => {
-                                e.stopPropagation()
-                                if (e.cancelable) e.preventDefault()
-                                setRoomPhotoIndex(dotIdx)
-                              }}
+                              onTouchStart={(e) => e.stopPropagation()}
+                              onTouchEnd={(e) => e.stopPropagation()}
                               aria-label={`Ir a foto ${dotIdx + 1}`}
                             />
                           ))}
