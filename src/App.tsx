@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowUpRight,
@@ -441,17 +441,68 @@ function App() {
     setRoomPhotoIndex(0)
   }, [activeRoom, roomCategory, currentRoom])
 
+  // Preload active room photos in browser cache so switching is instantaneous on mobile
+  useEffect(() => {
+    activePhotos.forEach((photo) => {
+      const img = new Image()
+      img.src = photo.local
+    })
+  }, [activePhotos])
+
   const currentPhoto = activePhotos[roomPhotoIndex] || activePhotos[0]
 
-  const handlePrevPhoto = useCallback((e?: React.MouseEvent) => {
-    if (e) e.stopPropagation()
+  const handlePrevPhoto = useCallback((e?: React.SyntheticEvent) => {
+    if (e) {
+      e.stopPropagation()
+      if ('preventDefault' in e) e.preventDefault()
+    }
     setRoomPhotoIndex((prev) => (prev - 1 + activePhotos.length) % activePhotos.length)
   }, [activePhotos.length])
 
-  const handleNextPhoto = useCallback((e?: React.MouseEvent) => {
-    if (e) e.stopPropagation()
+  const handleNextPhoto = useCallback((e?: React.SyntheticEvent) => {
+    if (e) {
+      e.stopPropagation()
+      if ('preventDefault' in e) e.preventDefault()
+    }
     setRoomPhotoIndex((prev) => (prev + 1) % activePhotos.length)
   }, [activePhotos.length])
+
+  const touchStartX = useRef<number | null>(null)
+  const touchStartY = useRef<number | null>(null)
+  const isSwiping = useRef(false)
+
+  const handleRoomTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX
+    touchStartY.current = e.touches[0].clientY
+    isSwiping.current = false
+  }, [])
+
+  const handleRoomTouchMove = useCallback((e: React.TouchEvent) => {
+    if (touchStartX.current === null || touchStartY.current === null) return
+    const diffX = touchStartX.current - e.touches[0].clientX
+    const diffY = touchStartY.current - e.touches[0].clientY
+    if (Math.abs(diffX) > 10 && Math.abs(diffX) > Math.abs(diffY)) {
+      isSwiping.current = true
+    }
+  }, [])
+
+  const handleRoomTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (touchStartX.current === null || touchStartY.current === null) return
+    const diffX = touchStartX.current - e.changedTouches[0].clientX
+    const diffY = touchStartY.current - e.changedTouches[0].clientY
+    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 35) {
+      if (diffX > 0) {
+        handleNextPhoto()
+      } else {
+        handlePrevPhoto()
+      }
+    }
+    touchStartX.current = null
+    touchStartY.current = null
+    setTimeout(() => {
+      isSwiping.current = false
+    }, 60)
+  }, [handleNextPhoto, handlePrevPhoto])
 
   const openRoomLightbox = useCallback((index = roomPhotoIndex) => {
     setActiveLightbox({
@@ -460,6 +511,11 @@ function App() {
       title: `${currentRoom.title} · ${roomCategory === 'bedroom' ? 'Dormitorio' : 'Baño Privado'}`,
     })
   }, [activePhotos, currentRoom.title, roomCategory, roomPhotoIndex])
+
+  const handleSliderClick = useCallback(() => {
+    if (isSwiping.current) return
+    openRoomLightbox(roomPhotoIndex)
+  }, [openRoomLightbox, roomPhotoIndex])
 
   const openBookingModal = useCallback((preselectedRoom?: string) => {
     if (preselectedRoom) {
@@ -720,10 +776,13 @@ function App() {
                   {/* Main Interactive Carousel / Slider */}
                   <div
                     className="room-slider"
-                    onClick={() => openRoomLightbox(roomPhotoIndex)}
+                    onClick={handleSliderClick}
+                    onTouchStart={handleRoomTouchStart}
+                    onTouchMove={handleRoomTouchMove}
+                    onTouchEnd={handleRoomTouchEnd}
                     role="button"
                     tabIndex={0}
-                    aria-label="Abrir imagen en pantalla completa"
+                    aria-label="Abrir imagen en pantalla completa (o deslizar para navegar)"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
@@ -731,21 +790,32 @@ function App() {
                       }
                     }}
                   >
-                    <AnimatePresence mode="wait">
+                    <AnimatePresence initial={false}>
                       <motion.div
                         key={`${currentRoom.beds}-${roomCategory}-${roomPhotoIndex}`}
                         className="room-slider-slide"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        transition={{ duration: 0.28, ease: 'easeInOut' }}
+                        transition={{ duration: 0.38, ease: [0.25, 0.1, 0.25, 1.0] }}
                       >
-                        <SmartImage asset={currentPhoto} className="room-slider-img" />
+                        <SmartImage
+                          asset={currentPhoto}
+                          className="room-slider-img"
+                          loading="eager"
+                          decoding="async"
+                        />
+                        <div className="room-slider-shade" />
                       </motion.div>
                     </AnimatePresence>
 
                     {/* Top badging & zoom action */}
-                    <div className="room-slider-topbar" onClick={(e) => e.stopPropagation()}>
+                    <div
+                      className="room-slider-topbar"
+                      onClick={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                      onTouchEnd={(e) => e.stopPropagation()}
+                    >
                       <span className="room-slider-badge">
                         {roomCategory === 'bedroom' ? 'Dormitorio' : 'Baño Privado'} · {String(roomPhotoIndex + 1).padStart(2, '0')} / {String(activePhotos.length).padStart(2, '0')}
                       </span>
@@ -767,6 +837,12 @@ function App() {
                           type="button"
                           className="slider-nav-arrow slider-nav-arrow--prev"
                           onClick={handlePrevPhoto}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onTouchEnd={(e) => {
+                            e.stopPropagation()
+                            if (e.cancelable) e.preventDefault()
+                            handlePrevPhoto()
+                          }}
                           aria-label="Foto anterior"
                         >
                           <ChevronLeft size={22} />
@@ -775,19 +851,38 @@ function App() {
                           type="button"
                           className="slider-nav-arrow slider-nav-arrow--next"
                           onClick={handleNextPhoto}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onTouchEnd={(e) => {
+                            e.stopPropagation()
+                            if (e.cancelable) e.preventDefault()
+                            handleNextPhoto()
+                          }}
                           aria-label="Foto siguiente"
                         >
                           <ChevronRight size={22} />
                         </button>
 
                         {/* Navigation dots */}
-                        <div className="slider-dots" onClick={(e) => e.stopPropagation()}>
+                        <div
+                          className="slider-dots"
+                          onClick={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onTouchEnd={(e) => e.stopPropagation()}
+                        >
                           {activePhotos.map((_, dotIdx) => (
                             <button
                               key={dotIdx}
                               type="button"
                               className={`slider-dot ${dotIdx === roomPhotoIndex ? 'slider-dot--active' : ''}`}
-                              onClick={() => setRoomPhotoIndex(dotIdx)}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setRoomPhotoIndex(dotIdx)
+                              }}
+                              onTouchEnd={(e) => {
+                                e.stopPropagation()
+                                if (e.cancelable) e.preventDefault()
+                                setRoomPhotoIndex(dotIdx)
+                              }}
                               aria-label={`Ir a foto ${dotIdx + 1}`}
                             />
                           ))}
