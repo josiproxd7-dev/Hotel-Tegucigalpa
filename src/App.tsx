@@ -118,7 +118,7 @@ const rooms: Room[] = [
     eyebrow: 'Íntima y serena',
     title: 'Habitación Sencilla',
     description: 'Un refugio silencioso para descansar, trabajar y despertar con calma tras recorrer las rutas de Copán.',
-    size: '1 cama · baño privado',
+    size: '1 cama',
     bedroomPhotos: [
       asset('/assets-hotel/hab-sencilla-1cama-1.jpg', unsplash('photo-1631049307264-da0ec9d70304'), 'Habitación sencilla — Vista general del dormitorio'),
       asset('/assets-hotel/hab-sencilla-1cama-2.jpg', unsplash('photo-1590490360182-c33d57733427'), 'Habitación sencilla — Cama confortable con ropa blanca'),
@@ -134,7 +134,7 @@ const rooms: Room[] = [
     eyebrow: 'Para compartir',
     title: 'Habitación Doble',
     description: 'Dos camas, amplitud y todo lo necesario para descansar en pareja o con un compañero de viaje.',
-    size: '2 camas · baño privado',
+    size: '2 camas',
     bedroomPhotos: [
       asset('/assets-hotel/hab-doble-2camas-1.jpg', unsplash('photo-1590490360182-c33d57733427'), 'Habitación doble — Dos camas confortables'),
       asset('/assets-hotel/hab-doble-2camas-2.jpg', unsplash('photo-1566665797739-1674de7a421a'), 'Habitación doble — Vista frontal y ventilación'),
@@ -147,7 +147,7 @@ const rooms: Room[] = [
     eyebrow: 'Para escapadas',
     title: 'Habitación Triple',
     description: 'La opción equilibrada para familia o amigos que buscan su propio ritmo, espacio y confort.',
-    size: '3 camas · baño privado',
+    size: '3 camas',
     bedroomPhotos: [
       asset('/assets-hotel/hab-triple-3camas-1.jpg', unsplash('photo-1566665797739-1674de7a421a'), 'Habitación triple — Distribución de las tres camas'),
       asset('/assets-hotel/hab-triple-3camas-2.jpg', unsplash('photo-1590490360182-c33d57733427'), 'Habitación triple — Vista lateral amplia'),
@@ -161,7 +161,7 @@ const rooms: Room[] = [
     eyebrow: 'Para todos',
     title: 'Habitación Cuádruple',
     description: 'Más espacio para reunirse, descansar y disfrutar Copán sin prisas. Ideal para grupos grandes y familias.',
-    size: '4 camas · baño privado',
+    size: '4 camas',
     bedroomPhotos: [
       asset('/assets-hotel/hab-cuadruple-4camas-1.jpg', unsplash('photo-1566665797739-1674de7a421a'), 'Habitación cuádruple — Cuatro camas para grupos y familias'),
       asset('/assets-hotel/hab-cuadruple-4camas-2.jpg', unsplash('photo-1590490360182-c33d57733427'), 'Habitación cuádruple — Vista panorámica del dormitorio'),
@@ -321,7 +321,7 @@ function SmartImage({
       alt={image.alt}
       loading={loading}
       decoding={decoding}
-      fetchPriority={fetchPriority}
+      {...(fetchPriority ? { fetchpriority: fetchPriority } : {})}
       draggable={false}
       onError={() => {
         if (!failed) setFailed(true)
