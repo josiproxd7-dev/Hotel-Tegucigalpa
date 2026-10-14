@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  ArrowDownRight,
   ArrowUpRight,
   Bath,
   BedDouble,
   CarFront,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -19,9 +17,7 @@ import {
   Phone,
   ShieldCheck,
   Sparkles,
-  Star,
   Tv,
-  UtensilsCrossed,
   Wifi,
   Wind,
   X,
@@ -297,21 +293,38 @@ const reveal = {
   },
 }
 
-function SmartImage({ asset: image, className = '', loading = 'lazy' as const }: { asset: Asset; className?: string; loading?: 'lazy' | 'eager' }) {
-  const [src, setSrc] = useState(image.local)
+function SmartImage({
+  asset: image,
+  className = '',
+  loading = 'lazy' as const,
+  decoding = 'async' as const,
+  fetchPriority,
+}: {
+  asset: Asset
+  className?: string
+  loading?: 'lazy' | 'eager'
+  decoding?: 'async' | 'auto' | 'sync'
+  fetchPriority?: 'high' | 'low' | 'auto'
+}) {
+  const [failed, setFailed] = useState(false)
+  const [prevLocal, setPrevLocal] = useState(image.local)
 
-  useEffect(() => {
-    setSrc(image.local)
-  }, [image.local])
+  if (prevLocal !== image.local) {
+    setPrevLocal(image.local)
+    setFailed(false)
+  }
 
   return (
     <img
       className={className}
-      src={src}
+      src={failed ? image.preview : image.local}
       alt={image.alt}
       loading={loading}
+      decoding={decoding}
+      fetchPriority={fetchPriority}
+      draggable={false}
       onError={() => {
-        if (src !== image.preview) setSrc(image.preview)
+        if (!failed) setFailed(true)
       }}
     />
   )
@@ -341,30 +354,66 @@ function App() {
   const [roomPhotoIndex, setRoomPhotoIndex] = useState(0)
   const [heroIndex, setHeroIndex] = useState(0)
   const [activeLightbox, setActiveLightbox] = useState<ActiveLightbox | null>(null)
+  const [bookingModalOpen, setBookingModalOpen] = useState(false)
+  const [bookingForm, setBookingForm] = useState({
+    name: '',
+    phone: '',
+    roomType: 'Habitación Sencilla (1 cama)',
+    checkIn: '',
+    guests: '1',
+    notes: '',
+    honeypot: '',
+  })
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 36)
+    let ticking = false
+    const onScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const isScrolled = window.scrollY > 36
+          setScrolled((prev) => (prev !== isScrolled ? isScrolled : prev))
+          ticking = false
+        })
+        ticking = true
+      }
+    }
     onScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
   useEffect(() => {
-    const interval = window.setInterval(() => setHeroIndex((index) => (index + 1) % heroSlides.length), 6200)
-    return () => window.clearInterval(interval)
+    let interval: number
+    const start = () => {
+      window.clearInterval(interval)
+      interval = window.setInterval(() => {
+        if (!document.hidden) {
+          setHeroIndex((index) => (index + 1) % heroSlides.length)
+        }
+      }, 6200)
+    }
+    start()
+    document.addEventListener('visibilitychange', start)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', start)
+    }
   }, [])
 
   useEffect(() => {
-    document.body.style.overflow = activeLightbox !== null ? 'hidden' : ''
+    document.body.style.overflow = (activeLightbox !== null || bookingModalOpen) ? 'hidden' : ''
     return () => {
       document.body.style.overflow = ''
     }
-  }, [activeLightbox])
+  }, [activeLightbox, bookingModalOpen])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (bookingModalOpen) setBookingModalOpen(false)
+        if (activeLightbox) setActiveLightbox(null)
+      }
       if (!activeLightbox) return
-      if (event.key === 'Escape') setActiveLightbox(null)
       if (event.key === 'ArrowRight') {
         setActiveLightbox((prev) => (prev ? { ...prev, index: (prev.index + 1) % prev.items.length } : null))
       }
@@ -374,7 +423,7 @@ function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [activeLightbox])
+  }, [activeLightbox, bookingModalOpen])
 
   const currentRoom = useMemo(() => rooms.find((room) => room.beds === activeRoom) ?? rooms[0], [activeRoom])
 
@@ -394,35 +443,56 @@ function App() {
 
   const currentPhoto = activePhotos[roomPhotoIndex] || activePhotos[0]
 
-  const handlePrevPhoto = (e?: React.MouseEvent) => {
+  const handlePrevPhoto = useCallback((e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
     setRoomPhotoIndex((prev) => (prev - 1 + activePhotos.length) % activePhotos.length)
-  }
+  }, [activePhotos.length])
 
-  const handleNextPhoto = (e?: React.MouseEvent) => {
+  const handleNextPhoto = useCallback((e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
     setRoomPhotoIndex((prev) => (prev + 1) % activePhotos.length)
-  }
+  }, [activePhotos.length])
 
-  const openRoomLightbox = (index = roomPhotoIndex) => {
+  const openRoomLightbox = useCallback((index = roomPhotoIndex) => {
     setActiveLightbox({
       items: activePhotos,
       index,
       title: `${currentRoom.title} · ${roomCategory === 'bedroom' ? 'Dormitorio' : 'Baño Privado'}`,
     })
-  }
+  }, [activePhotos, currentRoom.title, roomCategory, roomPhotoIndex])
+
+  const openBookingModal = useCallback((preselectedRoom?: string) => {
+    if (preselectedRoom) {
+      setBookingForm((prev) => ({ ...prev, roomType: preselectedRoom }))
+    }
+    setBookingModalOpen(true)
+  }, [])
+
+  const handleBookingSubmit = useCallback((e: React.FormEvent) => {
+    e.preventDefault()
+    // Anti-bot Honeypot validation: If field filled, silently abort to stop automated spam bots
+    if (bookingForm.honeypot.trim().length > 0) {
+      setBookingModalOpen(false)
+      return
+    }
+
+    const msg = `Hola Hotel Tegucigalpa, deseo consultar disponibilidad y reservar:\n• Nombre: ${bookingForm.name.trim() || 'Huésped'}\n• Teléfono: ${bookingForm.phone.trim() || 'No especificado'}\n• Habitación: ${bookingForm.roomType}\n• Fecha estimada: ${bookingForm.checkIn || 'Por definir'}\n• Huéspedes: ${bookingForm.guests}${bookingForm.notes.trim() ? `\n• Nota: ${bookingForm.notes.trim()}` : ''}`
+    const url = `${WHATSAPP}?text=${encodeURIComponent(msg)}`
+    window.open(url, '_blank', 'noopener,noreferrer')
+    setBookingModalOpen(false)
+  }, [bookingForm])
 
   const roomWhatsapp = `${WHATSAPP}?text=${encodeURIComponent(`Hola, deseo reservar la habitación de ${currentRoom.beds} cama${currentRoom.beds > 1 ? 's' : ''} en Hotel Tegucigalpa`)}`
   const consultWhatsapp = `${WHATSAPP}?text=${encodeURIComponent('Hola, deseo consultar disponibilidad en Hotel Tegucigalpa')}`
 
-  const closeMenu = () => setMenuOpen(false)
+  const closeMenu = useCallback(() => setMenuOpen(false), [])
 
   return (
     <div className="site-shell">
       <header className={`site-nav ${scrolled ? 'site-nav--scrolled' : ''}`}>
         <div className="site-nav-inner container mx-auto px-6 md:px-12 lg:px-16">
           <a href="#inicio" className="brand" onClick={closeMenu} aria-label="Hotel Tegucigalpa, inicio">
-            <img src={HOTEL_LOGO} alt="Hotel Tegucigalpa Logo" className="brand-logo" width={54} height={54} />
+            <img src={HOTEL_LOGO} alt="Hotel Tegucigalpa Logo" className="brand-logo" width={54} height={54} draggable={false} />
             <span className="brand-copy"><strong>Hotel</strong><em>Tegucigalpa</em></span>
           </a>
           <button className="menu-toggle" onClick={() => setMenuOpen((open) => !open)} aria-label={menuOpen ? 'Cerrar menú' : 'Abrir menú'} aria-expanded={menuOpen}>
@@ -434,9 +504,16 @@ function App() {
             <a href="#servicios" onClick={closeMenu}>Servicios</a>
             <a href="#galeria" onClick={closeMenu}>Galería</a>
             <a href="#ubicacion" onClick={closeMenu}>Ubicación</a>
-            <a className="nav-cta" href={consultWhatsapp} target="_blank" rel="noreferrer" onClick={closeMenu}>
+            <button
+              type="button"
+              className="nav-cta"
+              onClick={() => {
+                openBookingModal()
+                closeMenu()
+              }}
+            >
               <MessageCircle size={16} /> Reservar
-            </a>
+            </button>
           </nav>
         </div>
       </header>
@@ -457,6 +534,8 @@ function App() {
                   asset={heroSlides[heroIndex]}
                   className={heroSlides[heroIndex].imgClass}
                   loading="eager"
+                  fetchPriority={heroIndex === 0 ? 'high' : 'auto'}
+                  decoding="async"
                 />
               </motion.div>
             </AnimatePresence>
@@ -468,9 +547,13 @@ function App() {
               <h1>Tu espacio de <i>confort,</i><br /> elegancia y tranquilidad.</h1>
               <p className="hero-lede">Una pausa con alma colonial, atención cercana y todo lo que necesitas para sentirte bien lejos de casa.</p>
               <div className="hero-actions">
-                <a href={consultWhatsapp} target="_blank" rel="noreferrer" className="button button--gold">
+                <button
+                  type="button"
+                  onClick={() => openBookingModal()}
+                  className="button button--gold"
+                >
                   <MessageCircle size={17} /> Consultar disponibilidad <ArrowUpRight size={16} />
-                </a>
+                </button>
                 <a href="tel:+50498881975" className="button button--ghost">
                   <Phone size={17} /> +504 9888-1975
                 </a>
@@ -581,7 +664,7 @@ function App() {
             <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.18 }} variants={reveal}>
               <SectionHeading
                 eyebrow="Descansa a tu manera"
-                title="Habitaciones pensadas para llegar y soltar."
+                title="Habitaciones pensadas para llegar y relajarse."
                 text="Explora cada rincón de nuestras habitaciones. Todas cuentan con baño privado completo, aire acondicionado, agua caliente y la mayor comodidad para tu estadía en Copán."
               />
             </motion.div>
@@ -759,9 +842,13 @@ function App() {
                     </div>
                   </div>
 
-                  <a className="button button--teal room-cta" href={roomWhatsapp} target="_blank" rel="noreferrer">
+                  <button
+                    type="button"
+                    className="button button--teal room-cta"
+                    onClick={() => openBookingModal(`${currentRoom.title} (${currentRoom.beds} cama${currentRoom.beds > 1 ? 's' : ''})`)}
+                  >
                     <MessageCircle size={17} /> Consultar disponibilidad <ArrowUpRight size={16} />
-                  </a>
+                  </button>
                 </div>
               </motion.div>
             </AnimatePresence>
@@ -800,8 +887,6 @@ function App() {
                   initial="hidden"
                   whileInView="visible"
                   viewport={{ once: true, amount: 0.15 }}
-                  whileHover={{ scale: 1.02 }}
-                  transition={{ duration: 0.3, ease: 'easeOut' }}
                   variants={{ ...reveal, visible: { ...reveal.visible, transition: { ...reveal.visible.transition, delay: index * 0.07 } } }}
                 >
                   {service.image && <SmartImage asset={service.image} />}
@@ -841,8 +926,6 @@ function App() {
                     initial="hidden"
                     whileInView="visible"
                     viewport={{ once: true, amount: 0.12 }}
-                    whileHover={{ scale: 1.02 }}
-                    transition={{ duration: 0.25 }}
                     variants={{
                       ...reveal,
                       visible: {
@@ -875,22 +958,22 @@ function App() {
                 <span><small>Llámanos 24/7</small><strong>+504 9888-1975</strong></span>
                 <ArrowUpRight size={17} />
               </a>
-              <a href={consultWhatsapp} target="_blank" rel="noreferrer">
+              <a href={consultWhatsapp} target="_blank" rel="noopener noreferrer">
                 <span className="contact-icon"><MessageCircle size={17} /></span>
                 <span><small>Escríbenos por WhatsApp</small><strong>Reservas directas</strong></span>
                 <ArrowUpRight size={17} />
               </a>
-              <a href={MAP_LINK} target="_blank" rel="noreferrer">
+              <a href={MAP_LINK} target="_blank" rel="noopener noreferrer">
                 <span className="contact-icon"><Navigation size={17} /></span>
                 <span><small>Visítanos</small><strong>La Entrada, Copán, Honduras</strong></span>
                 <ArrowUpRight size={17} />
               </a>
             </div>
             <div className="location-actions">
-              <a href={MAP_LINK} target="_blank" rel="noreferrer" className="button button--teal">
+              <a href={MAP_LINK} target="_blank" rel="noopener noreferrer" className="button button--teal">
                 <Navigation size={16} /> Abrir en Google Maps <ArrowUpRight size={15} />
               </a>
-              <a href={WAZE_LINK} target="_blank" rel="noreferrer" className="button button--ghost-dark">
+              <a href={WAZE_LINK} target="_blank" rel="noopener noreferrer" className="button button--ghost-dark">
                 <CarFront size={16} /> Abrir en Waze <ArrowUpRight size={15} />
               </a>
             </div>
@@ -908,10 +991,10 @@ function App() {
 
       <footer className="site-footer">
         <div className="page-width footer-main">
-          <div className="footer-brand"><a href="#inicio" className="brand" aria-label="Hotel Tegucigalpa, inicio"><img src={HOTEL_LOGO} alt="Hotel Tegucigalpa Logo" className="brand-logo" width={54} height={54} /><span className="brand-copy"><strong>Hotel</strong><em>Tegucigalpa</em></span></a><p>Tu espacio de confort,<br />elegancia y tranquilidad.</p></div>
+          <div className="footer-brand"><a href="#inicio" className="brand" aria-label="Hotel Tegucigalpa, inicio"><img src={HOTEL_LOGO} alt="Hotel Tegucigalpa Logo" className="brand-logo" width={54} height={54} draggable={false} /><span className="brand-copy"><strong>Hotel</strong><em>Tegucigalpa</em></span></a><p>Tu espacio de confort,<br />elegancia y tranquilidad.</p></div>
           <div className="footer-nav"><span>Navegar</span><a href="#sobre-nosotros">Sobre nosotros</a><a href="#habitaciones">Habitaciones</a><a href="#galeria">Galería</a><a href="#ubicacion">Ubicación</a></div>
-          <div className="footer-contact"><span>Contacto directo</span><a href="tel:+50498881975">+504 9888-1975</a><a href={consultWhatsapp} target="_blank" rel="noreferrer">WhatsApp para reservas <ArrowUpRight size={14} /></a><small>Recepción abierta 24 horas</small></div>
-          <a href={consultWhatsapp} target="_blank" rel="noreferrer" className="footer-cta"><MessageCircle size={20} /><span>Reserva tu<br /><b>próxima pausa</b></span><ArrowUpRight size={18} /></a>
+          <div className="footer-contact"><span>Contacto directo</span><a href="tel:+50498881975">+504 9888-1975</a><a href={consultWhatsapp} target="_blank" rel="noopener noreferrer">WhatsApp para reservas <ArrowUpRight size={14} /></a><small>Recepción abierta 24 horas</small></div>
+          <button type="button" onClick={() => openBookingModal()} className="footer-cta"><MessageCircle size={20} /><span>Reserva tu<br /><b>próxima pausa</b></span><ArrowUpRight size={18} /></button>
         </div>
         <div className="page-width footer-bottom"><span>© {new Date().getFullYear()} Hotel Tegucigalpa. Todos los derechos reservados.</span><span>Hecho para descansar mejor en Copán <span className="gold-star">✦</span></span></div>
       </footer>
@@ -969,6 +1052,167 @@ function App() {
                 ›
               </button>
             )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {bookingModalOpen && (
+          <motion.div
+            className="booking-modal-overlay"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="booking-modal-title"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setBookingModalOpen(false)}
+          >
+            <motion.div
+              className="booking-modal-card"
+              initial={{ scale: 0.94, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.94, opacity: 0, y: 15 }}
+              transition={{ duration: 0.28, ease: 'easeOut' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                className="booking-modal-close"
+                onClick={() => setBookingModalOpen(false)}
+                aria-label="Cerrar formulario de reserva"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="booking-modal-header">
+                <span className="eyebrow"><i />Reservas Directas</span>
+                <h3 id="booking-modal-title">Consultar disponibilidad</h3>
+                <p>Completa tus datos para confirmar disponibilidad directamente con nuestra recepción en La Entrada, Copán.</p>
+              </div>
+
+              <form className="booking-form" onSubmit={handleBookingSubmit}>
+                {/* Campo Honeypot Anti-Bot (invisible para usuarios humanos, llena bots automatizados para abortar spam silenciosamente) */}
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute',
+                    left: '-9999px',
+                    top: '-9999px',
+                    opacity: 0,
+                    pointerEvents: 'none',
+                    width: '1px',
+                    height: '1px',
+                    overflow: 'hidden',
+                    zIndex: -1,
+                  }}
+                >
+                  <label htmlFor="hp_hotel_verification">No llenar este campo de validación</label>
+                  <input
+                    type="text"
+                    id="hp_hotel_verification"
+                    name="hp_hotel_verification"
+                    value={bookingForm.honeypot}
+                    onChange={(e) => setBookingForm((prev) => ({ ...prev, honeypot: e.target.value }))}
+                    tabIndex={-1}
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="booking-name">Nombre completo *</label>
+                    <input
+                      type="text"
+                      id="booking-name"
+                      required
+                      placeholder="Ej. Juan Pérez"
+                      className="form-input"
+                      value={bookingForm.name}
+                      onChange={(e) => setBookingForm((prev) => ({ ...prev, name: e.target.value }))}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="booking-phone">Teléfono / WhatsApp *</label>
+                    <input
+                      type="tel"
+                      id="booking-phone"
+                      required
+                      placeholder="Ej. +504 9888-1975"
+                      className="form-input"
+                      value={bookingForm.phone}
+                      onChange={(e) => setBookingForm((prev) => ({ ...prev, phone: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="booking-room">Tipo de habitación</label>
+                    <select
+                      id="booking-room"
+                      className="form-select"
+                      value={bookingForm.roomType}
+                      onChange={(e) => setBookingForm((prev) => ({ ...prev, roomType: e.target.value }))}
+                    >
+                      <option value="Habitación Sencilla (1 cama)">Habitación Sencilla (1 cama)</option>
+                      <option value="Habitación Doble (2 camas)">Habitación Doble (2 camas)</option>
+                      <option value="Habitación Triple (3 camas)">Habitación Triple (3 camas)</option>
+                      <option value="Habitación Cuádruple (4 camas)">Habitación Cuádruple (4 camas)</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="booking-guests">Número de personas</label>
+                    <select
+                      id="booking-guests"
+                      className="form-select"
+                      value={bookingForm.guests}
+                      onChange={(e) => setBookingForm((prev) => ({ ...prev, guests: e.target.value }))}
+                    >
+                      <option value="1 persona">1 persona</option>
+                      <option value="2 personas">2 personas</option>
+                      <option value="3 personas">3 personas</option>
+                      <option value="4 a 6 personas">4 a 6 personas</option>
+                      <option value="Grupo más de 6">Grupo (+6 personas)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="booking-date">Fecha estimada de llegada</label>
+                  <input
+                    type="date"
+                    id="booking-date"
+                    className="form-input"
+                    value={bookingForm.checkIn}
+                    onChange={(e) => setBookingForm((prev) => ({ ...prev, checkIn: e.target.value }))}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="booking-notes">Comentarios o requerimientos</label>
+                  <textarea
+                    id="booking-notes"
+                    placeholder="Hora estimada de llegada, parqueo o consulta especial..."
+                    rows={2}
+                    className="form-textarea"
+                    value={bookingForm.notes}
+                    onChange={(e) => setBookingForm((prev) => ({ ...prev, notes: e.target.value }))}
+                  />
+                </div>
+
+                <button type="submit" className="form-submit-btn">
+                  <MessageCircle size={17} /> Continuar a WhatsApp Oficial
+                </button>
+
+                <div className="booking-direct-fallback">
+                  ¿Prefieres contactar sin formulario?{' '}
+                  <a href={consultWhatsapp} target="_blank" rel="noopener noreferrer">
+                    Escribir directo a WhatsApp
+                  </a>
+                </div>
+              </form>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
